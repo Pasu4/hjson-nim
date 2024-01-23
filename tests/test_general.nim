@@ -277,3 +277,9 @@ test "not a number":
 }"""
     output = hjson2json(input)
   check output == """{"notNumbers":["-abc-","12345a","-12e+2a","1+1","1-1","1e2e3","1.2.3"]}"""
+
+test "carriage return":
+  let
+    input = "{\r\nkey: val\r\n}"
+    output = hjson2json(input)
+  check output == """{"key":"val"}"""

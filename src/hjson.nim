@@ -1,4 +1,4 @@
-import std/[strformat, json]
+import std/[strformat, json, strutils]
 
 const
   CharIgnore = {' ', '\t', '\v', '\r', '\f'}
@@ -290,7 +290,7 @@ proc parseArray() =
 
 proc hjson2json*(data: string): string =
   # set globals
-  inData = data
+  inData = data.replace("\r", "") # remove carriage return
   dataLen = inData.len
   index = 0
   outData = ""
@@ -302,5 +302,6 @@ proc hjson2json*(data: string): string =
 
   dowhile nextToken.tokType != eof:
     getNextToken(eof, newline, comment)
+
 
   return outData
