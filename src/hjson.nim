@@ -1,12 +1,12 @@
 import std/[strformat, json]
 
 const
-  CharIgnore = [' ', '\t', '\v', '\r', '\f']
-  CharNotKey = [',', '[', ']', '{', '}', ' ', '\t', '\v', '\r', '\n', '\f']
-  CharSpecial = [',', ':', '[', ']', '{', '}']
+  CharIgnore = {' ', '\t', '\v', '\r', '\f'}
+  CharNotKey = {',', '[', ']', '{', '}', ' ', '\t', '\v', '\r', '\n', '\f'}
+  CharSpecial = {',', ':', '[', ']', '{', '}'}
 
 type TokType = enum
-  eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonString, quotelessString, multilineString, key, comment, number, tTrue, tFalse, tNull
+  eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonString, quotelessString, multilineString, key, comment, number, literal, newline, comma
 
 type Token = object
   tokType: TokType
@@ -18,6 +18,10 @@ var
   index = 0
   nextToken: Token
   outData: string
+
+template digits =
+  while inData[index] in '0'..'9':
+    index += 1
 
 proc getNextToken(expect: varargs[TokType]) =
   while index < dataLen and inData[index] in CharIgnore:
@@ -43,6 +47,14 @@ proc getNextToken(expect: varargs[TokType]) =
 
   of '[':
     nextToken.tokType = closeSB
+    index += 1
+  
+  of '\n':
+    nextToken.tokType = newline
+    index += 1
+  
+  of ',':
+    nextToken.tokType = comma
     index += 1
 
   of '\'', '"':
@@ -73,13 +85,16 @@ proc getNextToken(expect: varargs[TokType]) =
 
   else:
     if inData[index..(index+3)] == "true": # true literal
-      nextToken.tokType = tTrue
+      nextToken.tokType = literal
+      nextToken.value = "true"
       index += 4
     elif inData[index..(index+4)] == "false": # false literal
-      nextToken.tokType = tFalse
+      nextToken.tokType = literal
+      nextToken.value = "false"
       index += 5
     elif inData[index..(index+3)] == "null": # null literal
-      nextToken.tokType = tNull
+      nextToken.tokType = literal
+      nextToken.value = "null"
       index += 4
     elif inData[index..(index+1)] == "//": # line comment
       nextToken.tokType = comment
@@ -91,20 +106,64 @@ proc getNextToken(expect: varargs[TokType]) =
       while not (inData[index] == '*' and inData[index+1] == '/'):
         index += 1
       index += 2
-    elif key in expect: # json key
+    elif key in expect: # hjson key
       nextToken.tokType = key
       let startIndex = index
       while inData[index] != ':':
         doAssert(inData[index] notin CharNotKey)
         index += 1
       nextToken.value = "\"" & inData[startIndex..index] & "\""
-    else: # quoteless string
-      nextToken.tokType = quotelessString
-      doAssert(inData[index] notin CharNotKey, "Unquoted string started with invalid symbol.") # First char must be valid
-      index += 1
+    else: # quoteless string or number
+      # nextToken.tokType = quotelessString
+      doAssert(inData[index] notin CharNotKey, &"Unquoted string started with invalid symbol: '{inData[index]}'.") # First char must be valid
+
       let startIndex = index
-      while inData[index] != '\n':
+
+      # Check if it is a number
+      var isNumber = true
+      # negative sign
+      if inData[index] == '-':
         index += 1
+      # first digits (if first is zero then none can follow)
+      if inData[index] == '0':
+        index += 1
+      elif inData[index] in '1'..'9':
+        index += 1
+        digits()
+      else: # there must be digits
+        isNumber = false
+      # decimal point
+      if inData[index] == '.':
+        index += 1
+        # decimal digits
+        if inData[index] in '0'..'9':
+          index += 1
+          digits()
+        else: # decimal point must be followed by digits
+          isNumber = false
+      # exponent
+      if inData[index] in ['e', 'E']:
+        index += 1
+        # optional exponent sign
+        if inData[index] in ['+', '-']:
+          index += 1
+        # exponent digits
+        if inData[index] in '0'..'9':
+          index += 1
+          digits()
+        else: # exponent must be followed by digits
+          isNumber = false
+
+      if isNumber:
+        nextToken.tokType = number
+        nextToken.value = inData[startIndex..<index]
+      else:
+        nextToken.tokType = quotelessString
+        index = startIndex + 1
+        while inData[index] != '\n':
+          index += 1
+        nextToken.value = inData[startIndex..<index]
+
       nextToken.value = escapeJson(inData[startIndex..index])
       index += 1
   
