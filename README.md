@@ -1,4 +1,4 @@
-# Nim wrapper for hjson
+# Hjson to Json converter
 
 Specifically made for the [Animdustry mod loader](https://github.com/Pasu4/animdustry).
 
