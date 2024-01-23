@@ -5,8 +5,13 @@ const
   CharNotKey = {',', '[', ']', '{', '}', ' ', '\t', '\v', '\r', '\n', '\f'}
   CharSpecial = {',', ':', '[', ']', '{', '}'}
 
+template dowhile(cond: typed, body: untyped) =
+  while true:
+    body
+    if not cond: break
+
 type TokType = enum
-  eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonStr, quotelessString, multilineString, key, comment, number, literal, newline, comma
+  none, eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonStr, quotelessString, multilineString, key, comment, number, literal, newline, comma
 
 type Token = object
   tokType: TokType
@@ -41,7 +46,7 @@ proc getNextToken(expect: varargs[TokType]) =
     nextToken.tokType = eof
     return
 
-  case inData[index-1]
+  case inData[index]
   of '{':
     nextToken.tokType = openCB
     index += 1
@@ -50,12 +55,16 @@ proc getNextToken(expect: varargs[TokType]) =
     nextToken.tokType = closeCB
     index += 1
 
-  of ']':
+  of '[':
     nextToken.tokType = openSB
     index += 1
 
-  of '[':
+  of ']':
     nextToken.tokType = closeSB
+    index += 1
+  
+  of ':':
+    nextToken.tokType = colon
     index += 1
   
   of '\n':
@@ -68,12 +77,24 @@ proc getNextToken(expect: varargs[TokType]) =
 
   of '\'', '"':
     if inData[index..(index+2)] == "'''":
+
       # Multiline
       nextToken.tokType = multilineString
       index += 3
+      let startIndex = index
       while inData[index..(index+2)] != "'''":
         index += 1
+      var val = inData[startIndex..<index]
+
+      # Remove up to 1 newline
+      if val.len != 0 and val[0] == '\n':
+        val = val[1..^1]
+      if val.len != 0 and val[^1] == '\n':
+        val = val[0..^2]
+
+      nextToken.value = escapeJson(val)
       index += 3
+
     else:
       nextToken.tokType = jsonStr
       let startQuote = inData[index]
@@ -93,15 +114,15 @@ proc getNextToken(expect: varargs[TokType]) =
     index += 1
 
   else:
-    if inData[index..(index+3)] == "true": # true literal
+    if index+3 < dataLen and inData[index..(index+3)] == "true": # true literal
       nextToken.tokType = literal
       nextToken.value = "true"
       index += 4
-    elif inData[index..(index+4)] == "false": # false literal
+    elif index+4 < dataLen and inData[index..(index+4)] == "false": # false literal
       nextToken.tokType = literal
       nextToken.value = "false"
       index += 5
-    elif inData[index..(index+3)] == "null": # null literal
+    elif index+3 < dataLen and inData[index..(index+3)] == "null": # null literal
       nextToken.tokType = literal
       nextToken.value = "null"
       index += 4
@@ -121,7 +142,7 @@ proc getNextToken(expect: varargs[TokType]) =
       while inData[index] != ':':
         doAssert(inData[index] notin CharNotKey)
         index += 1
-      nextToken.value = "\"" & inData[startIndex..index] & "\""
+      nextToken.value = "\"" & inData[startIndex..<index] & "\""
     else: # quoteless string or number
       # nextToken.tokType = quotelessString
       doAssert(inData[index] notin CharNotKey, &"Unquoted string started with invalid symbol: '{inData[index]}'.") # First char must be valid
@@ -162,6 +183,11 @@ proc getNextToken(expect: varargs[TokType]) =
           digits()
         else: # exponent must be followed by digits
           isNumber = false
+      # trailing whitespace
+      while inData[index] in CharIgnore:
+        index += 1
+      if inData[index] notin ['\n', ',', ']', '}']: # only these can follow a number
+        isNumber = false
 
       if isNumber:
         nextToken.tokType = number
@@ -171,10 +197,7 @@ proc getNextToken(expect: varargs[TokType]) =
         index = startIndex + 1
         while inData[index] != '\n':
           index += 1
-        nextToken.value = inData[startIndex..<index]
-
-      nextToken.value = escapeJson(inData[startIndex..index])
-      index += 1
+        nextToken.value = escapeJson(inData[startIndex..<index])
   
   doAssert(expect.len == 0 or nextToken.tokType in expect, &"Expected one of '{expect}' but got '{nextToken.tokType}'.")
 
@@ -186,21 +209,28 @@ proc parseObject() =
   outData &= "{"
 
   # Members
+  var first = true
   while true:
-    getNextToken(jsonStr, key, closeCB, comment, newline)
+    var seenComma = false
+    dowhile nextToken.tokType in [comment, newline, comma]:
+      getNextToken(jsonStr, key, closeCB, comment, newline, comma)
+      if nextToken.tokType == comma:
+        doAssert(not seenComma, "Multiple consecutive commas in object.")
+        doAssert(not first, "Comma at start of object.")
+        seenComma = true
 
     if nextToken.tokType in [comment, newline]:
       continue
 
     if nextToken.tokType == closeCB:
       break
-
-    parseMember()
-    getNextToken(comma, newline, closeCB)
-    if nextToken.tokType == closeCB:
-      break
+    
+    if first:
+      first = false
     else:
       outData &= ","
+
+    parseMember()
   
   # End of object
   outData &= "}"
@@ -209,7 +239,9 @@ proc parseMember() =
   outData &= nextToken.value
   getNextToken(colon)
   outData &= ":"
-  getNextToken(openCB, openSB, jsonStr, quotelessString, multilineString, number, literal)
+
+  dowhile nextToken.tokType in [comment, newline]:
+    getNextToken(openCB, openSB, jsonStr, quotelessString, multilineString, number, literal, comment, newline)
 
   # Value
   case nextToken.tokType
@@ -225,14 +257,23 @@ proc parseMember() =
 proc parseArray() =
   outData &= "["
 
+  var first = true
   while true:
-    getNextToken(openCB, openSb, jsonStr, quotelessString, multilineString, number, literal, comment, newline, closeSB)
-
-    if nextToken.tokType in [comment, newline]:
-      continue
+    var seenComma = false
+    dowhile nextToken.tokType in [comment, newline, comma]:
+      getNextToken(openCB, openSb, jsonStr, quotelessString, multilineString, number, literal, comment, newline, comma, closeSB)
+      if nextToken.tokType == comma:
+        doAssert(not seenComma, "Multiple consecutive commas in object.")
+        doAssert(not first, "Comma at start of object.")
+        seenComma = true
 
     if nextToken.tokType == closeSB:
       break
+
+    if first:
+      first = false
+    else:
+      outData &= ","
 
     case nextToken.tokType
     of openCB: # object
@@ -244,12 +285,6 @@ proc parseArray() =
     else:
       doAssert(false, "If you read this message, there is a problem because this code is supposed to be unreachable.")
 
-    getNextToken(comma, newline, closeSB)
-    if nextToken.tokType == closeSB:
-      break
-    else:
-      outData &= ","
-
   outData &= "]"
 
 
@@ -260,8 +295,12 @@ proc hjson2json*(data: string): string =
   index = 0
   outData = ""
 
-  getNextToken(openCB)
+  dowhile nextToken.tokType != openCB:
+    getNextToken(openCB, newline, comment)
+
   parseObject()
-  getNextToken(eof)
 
+  dowhile nextToken.tokType != eof:
+    getNextToken(eof, newline, comment)
 
+  return outData

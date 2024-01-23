@@ -1,0 +1,3 @@
+# Ignore compiled binaries without file extension
+/tests/*
+!/tests/*.*
