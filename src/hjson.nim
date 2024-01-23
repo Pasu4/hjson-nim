@@ -6,11 +6,16 @@ const
   CharSpecial = {',', ':', '[', ']', '{', '}'}
 
 type TokType = enum
-  eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonString, quotelessString, multilineString, key, comment, number, literal, newline, comma
+  eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonStr, quotelessString, multilineString, key, comment, number, literal, newline, comma
 
 type Token = object
   tokType: TokType
   value: string
+
+# prototypes
+proc parseObject()
+proc parseMember()
+proc parseArray()
 
 var
   inData: string
@@ -22,6 +27,10 @@ var
 template digits =
   while inData[index] in '0'..'9':
     index += 1
+
+# ---------------
+# Lexer
+# ---------------
 
 proc getNextToken(expect: varargs[TokType]) =
   while index < dataLen and inData[index] in CharIgnore:
@@ -66,7 +75,7 @@ proc getNextToken(expect: varargs[TokType]) =
         index += 1
       index += 3
     else:
-      nextToken.tokType = jsonString
+      nextToken.tokType = jsonStr
       let startQuote = inData[index]
       index += 1
       let startIndex = index
@@ -168,27 +177,80 @@ proc getNextToken(expect: varargs[TokType]) =
       index += 1
   
   doAssert(expect.len == 0 or nextToken.tokType in expect, &"Expected one of '{expect}' but got '{nextToken.tokType}'.")
-  
-proc parseMember() =
-  outData &= nextToken.value
-  getNextToken(colon)
-  outData &= ":"
-  getNextToken(openCB, openSB, jsonString, quotelessString, multilineString, number)
-  
+
+# ----------------
+# Parser
+# ----------------
 
 proc parseObject() =
   outData &= "{"
 
-  getNextToken(jsonString, key, closeCB, comment)
-
   # Members
   while true:
-    if nextToken.tokType != closeCB:
-      parseMember()
-    else: break
+    getNextToken(jsonStr, key, closeCB, comment, newline)
+
+    if nextToken.tokType in [comment, newline]:
+      continue
+
+    if nextToken.tokType == closeCB:
+      break
+
+    parseMember()
+    getNextToken(comma, newline, closeCB)
+    if nextToken.tokType == closeCB:
+      break
+    else:
+      outData &= ","
   
   # End of object
   outData &= "}"
+
+proc parseMember() =
+  outData &= nextToken.value
+  getNextToken(colon)
+  outData &= ":"
+  getNextToken(openCB, openSB, jsonStr, quotelessString, multilineString, number, literal)
+
+  # Value
+  case nextToken.tokType
+  of openCB: # object
+    parseObject()
+  of openSB: # array
+    parseArray()
+  of jsonStr, quotelessString, multilineString, number, literal:
+    outData &= nextToken.value
+  else:
+    doAssert(false, "If you read this message, there is a problem because this code is supposed to be unreachable.")
+
+proc parseArray() =
+  outData &= "["
+
+  while true:
+    getNextToken(openCB, openSb, jsonStr, quotelessString, multilineString, number, literal, comment, newline, closeSB)
+
+    if nextToken.tokType in [comment, newline]:
+      continue
+
+    if nextToken.tokType == closeSB:
+      break
+
+    case nextToken.tokType
+    of openCB: # object
+      parseObject()
+    of openSB: # array
+      parseArray()
+    of jsonStr, quotelessString, multilineString, number, literal:
+      outData &= nextToken.value
+    else:
+      doAssert(false, "If you read this message, there is a problem because this code is supposed to be unreachable.")
+
+    getNextToken(comma, newline, closeSB)
+    if nextToken.tokType == closeSB:
+      break
+    else:
+      outData &= ","
+
+  outData &= "]"
 
 
 proc hjson2json*(data: string): string =
