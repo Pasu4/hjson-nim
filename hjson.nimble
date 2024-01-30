@@ -1,6 +1,6 @@
 # Package
 
-version       = "1.0.2"
+version       = "1.0.3"
 author        = "Pasu4"
 description   = "Converter for hjson to json"
 license       = "MIT"

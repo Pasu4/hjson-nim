@@ -1,6 +1,7 @@
 import std/[strformat, json, strutils]
 
 type HjsonParsingError* = object of ValueError
+  errorPosition*: tuple[ln, col: int]
 
 const
   CharIgnore = {' ', '\t', '\v', '\r', '\f'}
@@ -11,9 +12,14 @@ template dowhile(cond: typed, body: untyped) =
     body
     if not cond: break
 
-template doAssertParsingError(cond: untyped, msg = "") =
+template doAssertParsingError(cond: untyped, errmsg: string = "") =
   if not cond:
-    raise newException(HjsonParsingError, msg)
+    var e: ref HjsonParsingError
+    new(e)
+    let pos = getErrorPosition()
+    e.errorPosition = pos
+    e.msg = "(" & $pos[0] & ", " & $pos[1] & "): " & errmsg
+    raise e
 
 # Check if the current character and at least <margin> more characters are left
 template checkIndex(margin = 0) =
@@ -24,6 +30,7 @@ template checkIndexNumber =
   if index >= dataLen:
     isNumber = false
     break checkIsNumber
+
 
 type TokType = enum
   none, eof, invalid, openCB, closeCB, openSB, closeSB, colon, jsonStr, quotelessString, multilineString, key, comment, number, literal, newline, comma
@@ -41,6 +48,7 @@ var
   inData: string
   dataLen: int
   index = 0
+  tokenStartIndex = 0
   nextToken: Token
   outData: string
 
@@ -53,11 +61,25 @@ template digits =
 # Lexer
 # ---------------
 
+proc getErrorPosition(): (int, int) =
+  var ln, col: int
+
+  if tokenStartIndex >= dataLen:
+    ln = inData.count('\n') + 1
+    col = high(inData) - inData.rfind('\n').max(0)
+  else:
+    # echo tokenStartIndex, ": ", escapeJson($inData[index])
+    ln = inData[0..tokenStartIndex].count('\n') + 1
+    col = tokenStartIndex - inData.rfind('\n', 0, tokenStartIndex)
+
+  return (ln, col)
+
 proc getNextToken(expect: varargs[TokType]) =
   while index < dataLen and inData[index] in CharIgnore:
     index += 1
+  tokenStartIndex = index
   
-  # If end of file, return
+  # If end of file
   if index >= dataLen:
     nextToken.tokType = eof
   else:

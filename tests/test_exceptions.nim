@@ -1,42 +1,44 @@
-import unittest
+import unittest, std/strutils
 
 import hjson
+
+template checkErrorPosition(ln, col: int) =
+  try:
+    discard hjson2json(input)
+    raise newException(AssertionDefect, "Function should have raised an exception.")
+  except HjsonParsingError as e:
+    check e.errorPosition[0] == ln
+    check e.errorPosition[1] == col
 
 test "invalid symbol in key":
   let input = """
 {
   abc}def: 42
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(2, 3)
 
 test "unexpected eof":
   let input = "{\nabc:"
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(2, 4)
 
 test "unexpected end of object":
   let input = "{\nabc:\n}"
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(3, 1)
 
 test "unmatched quote":
   let input = "{\nabc: \"hello}"
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(2, 6)
 
 test "unmatched multiline quote":
   let input = "{\nabc: '''hello}"
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(2, 6)
 
 test "'}' after unquoted string without newline":
   let input = """
 {
   abc: {cde: hello}
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(3, 1)
 
 test "consecutive commas in object":
   let input = """
@@ -46,8 +48,7 @@ test "consecutive commas in object":
   ,
   ghi: 3
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(4, 3)
 
 test "consecutive commas in array":
   let input = """
@@ -59,8 +60,7 @@ test "consecutive commas in array":
     "ghi"
   ]
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(5, 5)
 
 test "leading comma in object":
   let input = """
@@ -70,8 +70,7 @@ test "leading comma in object":
   def: 2,
   ghi: 3
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(2, 3)
 
 test "leading comma in array":
   let input = """
@@ -83,5 +82,15 @@ test "leading comma in array":
     "ghi"
   ]
 }"""
-  doAssertRaises(HjsonParsingError):
-    discard hjson2json(input)
+  checkErrorPosition(3, 5)
+
+test "error position":
+  let input = """{
+  ary: [
+    ,
+    "abc",
+    "def",
+    "ghi"
+  ]
+}"""
+  checkErrorPosition(3, 5)
