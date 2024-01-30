@@ -1,10 +1,3 @@
-# This is just an example to get you started. You may wish to put all of your
-# tests into a single file, or separate them into multiple `test1`, `test2`
-# etc. files (better names are recommended, just make sure the name starts with
-# the letter 't').
-#
-# To run these tests, simply execute `nimble test`.
-
 import unittest
 
 import hjson
@@ -190,8 +183,7 @@ test "line comments (#)":
     val2
   # comment 6
 } # comment 7
-# comment 8
-"""
+# comment 8"""
     output = hjson2json(input)
   check output == """{"key1":"val1","key2":"val2"}"""
 
@@ -207,8 +199,7 @@ test "line comments (//)":
     val2
   // comment 6
 } // comment 7
-// comment 8
-"""
+// comment 8"""
     output = hjson2json(input)
   check output == """{"key1":"val1","key2":"val2"}"""
 
@@ -225,8 +216,7 @@ test "block comments":
   */val2
 /* comment 6
 */}/* comment 7 */
-/**/
-"""
+/**/"""
     output = hjson2json(input)
   check output == """{"key1":"val1","key2":"val2"}"""
 
@@ -283,3 +273,24 @@ test "carriage return":
     input = "{\r\nkey: val\r\n}"
     output = hjson2json(input)
   check output == """{"key":"val"}"""
+
+test "escape sequence in string":
+  let
+    input = """
+{
+  str1: "abc\ndef"
+  str2: abc\ndef
+  str3: '''abc\ndef'''
+}"""
+    output = hjson2json(input)
+  check output == """{"str1":"abc\ndef","str2":"abc\\ndef","str3":"abc\\ndef"}"""
+
+test "escape sequence in key":
+  let
+    input = """
+{
+  abc\ndef: 123
+  "ghi\njkl": 456
+}"""
+    output = hjson2json(input)
+  check output == """{"abc\\ndef":123,"ghi\njkl":456}"""
