@@ -1,4 +1,4 @@
-import unittest, std/strutils
+import unittest
 
 import hjson
 
