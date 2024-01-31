@@ -85,7 +85,8 @@ test "leading comma in array":
   checkErrorPosition(3, 5)
 
 test "error position":
-  let input = """{
+  let input = """
+{
   ary: [
     ,
     "abc",
@@ -94,3 +95,13 @@ test "error position":
   ]
 }"""
   checkErrorPosition(3, 5)
+
+test "multiple root objects":
+  let input = """
+{
+  abc: 10
+}
+{
+  def: 20
+}"""
+  checkErrorPosition(4, 1)

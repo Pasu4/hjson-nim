@@ -364,5 +364,4 @@ proc hjson2json*(data: string): string =
   dowhile nextToken.tokType != eof:
     getNextToken(eof, newline, comment)
 
-
   return outData
